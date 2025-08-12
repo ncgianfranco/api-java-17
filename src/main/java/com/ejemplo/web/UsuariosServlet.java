@@ -6,7 +6,7 @@ import java.io.PrintWriter;
 import java.util.List;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonObject;
+
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,16 +19,32 @@ public class UsuariosServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        response.setContentType("application/json");
         try {
-            List<Usuario> lista = UsuarioRepository.obtenerTodos();
-            request.setAttribute("usuarios", lista);
-            request.getRequestDispatcher("/usuarios.jsp").forward(request, response);
+            String nombre = request.getParameter("nombre");
+            PrintWriter out = response.getWriter();
+
+            if (nombre != null && !nombre.isEmpty()) {
+                Usuario u = UsuarioRepository.buscar(nombre);
+                if (u != null) {
+                    // Serializamos el objeto Usuario a JSON usando Gson
+                    String usuarioJson = gson.toJson(u);
+                    out.print(usuarioJson);
+                } else {
+                    response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                    out.print(gson.toJson(new ErrorResponse("Usuario no encontrado")));
+                }
+            } else {
+                List<Usuario> lista = UsuarioRepository.obtenerTodos();
+                String listaJson = gson.toJson(lista);
+                out.print(listaJson);
+            }
         } catch (Exception e) {
             e.printStackTrace();
-            response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Error obteniendo usuarios");
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            response.getWriter().print(gson.toJson(new ErrorResponse("Error interno del servidor")));
         }
     }
-
 
     @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
@@ -39,23 +55,25 @@ public class UsuariosServlet extends HttpServlet {
         String email = request.getParameter("email");
 
         PrintWriter out = response.getWriter();
-        JsonObject jsonResponse = new JsonObject();
 
         if (nombre == null || email == null || nombre.isEmpty() || email.isEmpty()) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            jsonResponse.addProperty("error", "Se requieren nombre y email");
-            out.print(gson.toJson(jsonResponse));
+            out.print(gson.toJson(new ErrorResponse("Se requieren nombre y email")));
             return;
         }
 
-        boolean agregado = UsuarioRepository.agregarUsuario(new Usuario(nombre, email));
-        if (agregado) {
-            jsonResponse.addProperty("mensaje", "Usuario registrado correctamente");
-            out.print(gson.toJson(jsonResponse));
-        } else {
+        try {
+            boolean agregado = UsuarioRepository.agregarUsuario(new Usuario(nombre, email));
+            if (agregado) {
+                out.print(gson.toJson(new MessageResponse("Usuario registrado correctamente")));
+            } else {
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                out.print(gson.toJson(new ErrorResponse("No se pudo registrar el usuario")));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
             response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
-            jsonResponse.addProperty("error", "No se pudo registrar el usuario");
-            out.print(gson.toJson(jsonResponse));
+            out.print(gson.toJson(new ErrorResponse("Error interno del servidor")));
         }
     }
 
@@ -64,26 +82,27 @@ public class UsuariosServlet extends HttpServlet {
             throws IOException {
         response.setContentType("application/json");
         PrintWriter out = response.getWriter();
-        JsonObject jsonResponse = new JsonObject();
 
         String nombre = request.getParameter("nombre");
 
         if (nombre == null || nombre.isEmpty()) {
             response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            jsonResponse.addProperty("error", "nombre requerido");
-            out.print(gson.toJson(jsonResponse));
+            out.print(gson.toJson(new ErrorResponse("nombre requerido")));
             return;
         }
 
-        boolean eliminado = UsuarioRepository.eliminar(nombre);
-
-        if (eliminado) {
-            jsonResponse.addProperty("mensaje", "Usuario '" + nombre + "' eliminado");
-            out.print(gson.toJson(jsonResponse));
-        } else {
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            jsonResponse.addProperty("error", "Usuario '" + nombre + "' no encontrado");
-            out.print(gson.toJson(jsonResponse));
+        try {
+            boolean eliminado = UsuarioRepository.eliminar(nombre);
+            if (eliminado) {
+                out.print(gson.toJson(new MessageResponse("Usuario '" + nombre + "' eliminado")));
+            } else {
+                response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                out.print(gson.toJson(new ErrorResponse("Usuario '" + nombre + "' no encontrado")));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            out.print(gson.toJson(new ErrorResponse("Error interno del servidor")));
         }
     }
 
@@ -92,44 +111,60 @@ public class UsuariosServlet extends HttpServlet {
             throws IOException {
         response.setContentType("application/json");
         PrintWriter out = response.getWriter();
-        JsonObject jsonResponse = new JsonObject();
 
-        // Leer JSON desde el body
-        StringBuilder sb = new StringBuilder();
-        try (BufferedReader reader = request.getReader()) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line);
-            }
-        }
-
-        Usuario putUsuario = null;
         try {
-            putUsuario = gson.fromJson(sb.toString(), Usuario.class);
+            // Leemos el body (se espera application/x-www-form-urlencoded)
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader = request.getReader()) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+            }
+
+            // Parseamos parámetros manualmente
+            String[] params = sb.toString().split("&");
+            String nombre = null, nuevoEmail = null;
+            for (String param : params) {
+                String[] keyValue = param.split("=");
+                if (keyValue.length == 2) {
+                    if ("nombre".equals(keyValue[0])) nombre = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                    if ("email".equals(keyValue[0])) nuevoEmail = java.net.URLDecoder.decode(keyValue[1], "UTF-8");
+                }
+            }
+
+            if (nombre == null || nuevoEmail == null || nombre.isEmpty() || nuevoEmail.isEmpty()) {
+                response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
+                out.print(gson.toJson(new ErrorResponse("Se requieren nombre y email")));
+                return;
+            }
+
+            boolean actualizado = UsuarioRepository.actualizarEmail(nombre, nuevoEmail);
+
+            if (actualizado) {
+                out.print(gson.toJson(new MessageResponse("Usuario " + nombre + " actualizado con " + nuevoEmail)));
+            } else {
+                response.setStatus(HttpServletResponse.SC_NOT_FOUND);
+                out.print(gson.toJson(new ErrorResponse("Usuario " + nombre + " no encontrado")));
+            }
+
         } catch (Exception e) {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            jsonResponse.addProperty("error", "JSON inválido");
-            out.print(gson.toJson(jsonResponse));
-            return;
+            e.printStackTrace();
+            response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+            out.print(gson.toJson(new ErrorResponse("Error interno del servidor")));
         }
+    }
 
-        if (putUsuario == null || putUsuario.getNombre() == null || putUsuario.getEmail() == null ||
-            putUsuario.getNombre().isEmpty() || putUsuario.getEmail().isEmpty()) {
-            response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
-            jsonResponse.addProperty("error", "Se requieren nombre y email");
-            out.print(gson.toJson(jsonResponse));
-            return;
-        }
+    // Clases internas para respuestas JSON uniformes
+    private static class ErrorResponse {
+        private final String error;
+        public ErrorResponse(String error) { this.error = error; }
+        public String getError() { return error; }
+    }
 
-        boolean actualizado = UsuarioRepository.actualizarEmail(putUsuario.getNombre(), putUsuario.getEmail());
-
-        if (actualizado) {
-            jsonResponse.addProperty("mensaje", "Usuario " + putUsuario.getNombre() + " actualizado con " + putUsuario.getEmail());
-            out.print(gson.toJson(jsonResponse));
-        } else {
-            response.setStatus(HttpServletResponse.SC_NOT_FOUND);
-            jsonResponse.addProperty("error", "Usuario " + putUsuario.getNombre() + " no encontrado");
-            out.print(gson.toJson(jsonResponse));
-        }
+    private static class MessageResponse {
+        private final String mensaje;
+        public MessageResponse(String mensaje) { this.mensaje = mensaje; }
+        public String getMensaje() { return mensaje; }
     }
 }
