@@ -1,6 +1,9 @@
+com/ejemplo/web/UsuariosServlet$MessageResponse.class
+com/ejemplo/web/UsuarioDAO.class
+com/ejemplo/web/UsuariosServlet.class
+com/ejemplo/web/Usuario.class
 com/ejemplo/web/FormularioServlet.class
 com/ejemplo/web/DBConnection.class
 com/ejemplo/web/UsuarioRepository.class
-com/ejemplo/web/UsuariosServlet.class
-com/ejemplo/web/Usuario.class
+com/ejemplo/web/UsuariosServlet$ErrorResponse.class
 com/ejemplo/web/HolaServlet.class
